@@ -1,0 +1,346 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum SwipeDirection {
+  LIKE
+  PASS
+}
+
+enum ReportStatus {
+  OPEN
+  REVIEWED
+  ACTIONED
+}
+
+model User {
+  id              String            @id @default(uuid()) @db.Uuid
+  email           String            @unique @db.VarChar(320)
+  passwordHash    String            @map("password_hash")
+  birthDate       DateTime          @map("birth_date") @db.Date
+  createdAt       DateTime          @default(now()) @map("created_at")
+  profile         Profile?
+  preferences     Preference?
+  sessions        Session[]
+  swipesSent      Swipe[]           @relation("SwipeActor")
+  swipesGot       Swipe[]           @relation("SwipeTarget")
+  matchesA        Match[]           @relation("MatchUserA")
+  matchesB        Match[]           @relation("MatchUserB")
+  dropsHosted     Drop[]            @relation("DropHost")
+  collections     DropCollection[]
+  messages        Message[]
+  blocksSent      Block[]           @relation("BlockActor")
+  blocksGot       Block[]           @relation("BlockTarget")
+  reportsSent     Report[]          @relation("ReportReporter")
+  reportsReceived Report[]          @relation("ReportTarget")
+  inventories     UserInventory[]
+  achievements    UserAchievement[]
+  notifications   Notification[]
+  gameSessions    GameSession[]     @relation("GameHost")
+  gameJoined      GameParticipant[]
+  callsInitiated  CallSession[]     @relation("CallCaller")
+  callsReceived   CallSession[]     @relation("CallCallee")
+  quizAnswers     QuizAnswer[]
+
+  @@map("users")
+}
+
+model Profile {
+  id                 String   @id @default(uuid()) @db.Uuid
+  userId             String   @unique @map("user_id") @db.Uuid
+  displayName        String   @map("display_name") @db.VarChar(80)
+  bio                String   @db.VarChar(500)
+  city               String   @db.VarChar(120)
+  interests          String[]
+  imageUrl           String?  @map("image_url") @db.VarChar(2048)
+  photos             String[] @default([])
+  gender             String?  @db.VarChar(40)
+  lookingFor         String?  @map("looking_for") @db.VarChar(40)
+  compatibilityScore Int?     @map("compatibility_score")
+  discoverable       Boolean  @default(true)
+  updatedAt          DateTime @updatedAt @map("updated_at")
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("profiles")
+}
+
+model Preference {
+  userId               String   @id @map("user_id") @db.Uuid
+  minAge               Int      @default(18) @map("min_age")
+  maxAge               Int      @default(99) @map("max_age")
+  maxDistanceKm        Int      @default(50) @map("max_distance_km")
+  discoveryRadiusMeters Int     @default(500) @map("discovery_radius_meters")
+  globalExploreMode    Boolean  @default(false) @map("global_explore_mode")
+  interests            String[]
+  genderPreference     String[] @default([]) @map("gender_preference")
+  locationConsent      Boolean  @default(false) @map("location_consent")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("preferences")
+}
+
+model Session {
+  id        String   @id @default(uuid()) @db.Uuid
+  tokenHash String   @unique @map("token_hash") @db.VarChar(64)
+  userId    String   @map("user_id") @db.Uuid
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model Swipe {
+  id        String         @id @default(uuid()) @db.Uuid
+  actorId   String         @map("actor_id") @db.Uuid
+  targetId  String         @map("target_id") @db.Uuid
+  direction SwipeDirection
+  createdAt DateTime       @default(now()) @map("created_at")
+  actor     User           @relation("SwipeActor", fields: [actorId], references: [id], onDelete: Cascade)
+  target    User           @relation("SwipeTarget", fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@unique([actorId, targetId])
+  @@map("swipes")
+}
+
+model Match {
+  id        String    @id @default(uuid()) @db.Uuid
+  userAId   String    @map("user_a_id") @db.Uuid
+  userBId   String    @map("user_b_id") @db.Uuid
+  createdAt DateTime  @default(now()) @map("created_at")
+  userA     User      @relation("MatchUserA", fields: [userAId], references: [id], onDelete: Cascade)
+  userB     User      @relation("MatchUserB", fields: [userBId], references: [id], onDelete: Cascade)
+  messages  Message[]
+
+  @@unique([userAId, userBId])
+  @@map("matches")
+}
+
+model Place {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String   @db.VarChar(160)
+  category     String   @db.VarChar(80)
+  neighborhood String   @db.VarChar(120)
+  description  String   @db.VarChar(500)
+  latitude     Float
+  longitude    Float
+  fictional    Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([latitude, longitude])
+  @@map("places")
+}
+
+model Drop {
+  id              String           @id @default(uuid()) @db.Uuid
+  hostId          String           @map("host_id") @db.Uuid
+  title           String           @db.VarChar(160)
+  description     String           @db.VarChar(500)
+  interest        String           @db.VarChar(80)
+  startsAt        DateTime         @map("starts_at")
+  areaLabel       String           @map("area_label") @db.VarChar(160)
+  latitude        Float
+  longitude       Float
+  locationConsent Boolean          @default(false) @map("location_consent")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  host            User             @relation("DropHost", fields: [hostId], references: [id], onDelete: Cascade)
+  collections     DropCollection[]
+
+  @@index([startsAt])
+  @@index([latitude, longitude])
+  @@map("drops")
+}
+
+model DropCollection {
+  userId      String   @map("user_id") @db.Uuid
+  dropId      String   @map("drop_id") @db.Uuid
+  collectedAt DateTime @default(now()) @map("collected_at")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  drop        Drop     @relation(fields: [dropId], references: [id], onDelete: Cascade)
+
+  @@id([userId, dropId])
+  @@map("drop_collections")
+}
+
+model Message {
+  id        String   @id @default(uuid()) @db.Uuid
+  matchId   String   @map("match_id") @db.Uuid
+  senderId  String   @map("sender_id") @db.Uuid
+  body      String   @db.VarChar(2000)
+  createdAt DateTime @default(now()) @map("created_at")
+  match     Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  sender    User     @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([matchId, createdAt])
+  @@map("messages")
+}
+
+model Block {
+  blockerId String   @map("blocker_id") @db.Uuid
+  blockedId String   @map("blocked_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+  blocker   User     @relation("BlockActor", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked   User     @relation("BlockTarget", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@id([blockerId, blockedId])
+  @@index([blockedId])
+  @@map("blocks")
+}
+
+model Report {
+  id           String       @id @default(uuid()) @db.Uuid
+  reporterId   String       @map("reporter_id") @db.Uuid
+  targetUserId String       @map("target_user_id") @db.Uuid
+  reason       String       @db.VarChar(80)
+  details      String?      @db.VarChar(1000)
+  status       ReportStatus @default(OPEN)
+  createdAt    DateTime     @default(now()) @map("created_at")
+  reporter     User         @relation("ReportReporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  target       User         @relation("ReportTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
+
+  @@index([targetUserId, createdAt])
+  @@map("reports")
+}
+
+model CollectibleItem {
+  id              String          @id @default(uuid()) @db.Uuid
+  name            String          @db.VarChar(120)
+  slug            String          @unique @db.VarChar(120)
+  description     String          @db.VarChar(500)
+  icon            String          @db.VarChar(80)
+  rarity          String          @db.VarChar(40)
+  category        String          @db.VarChar(60)
+  perkDescription String?         @map("perk_description") @db.VarChar(240)
+  latitude        Float?
+  longitude       Float?
+  active          Boolean         @default(true)
+  createdAt       DateTime        @default(now()) @map("created_at")
+  inventories     UserInventory[]
+
+  @@map("collectible_items")
+}
+
+model UserInventory {
+  id         String          @id @default(uuid()) @db.Uuid
+  userId     String          @map("user_id") @db.Uuid
+  itemId     String          @map("item_id") @db.Uuid
+  quantity   Int             @default(1)
+  acquiredAt DateTime        @default(now()) @map("acquired_at")
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  item       CollectibleItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, itemId])
+  @@map("user_inventories")
+}
+
+model Achievement {
+  id               String            @id @default(uuid()) @db.Uuid
+  title            String            @db.VarChar(120)
+  slug             String            @unique @db.VarChar(120)
+  description      String            @db.VarChar(500)
+  icon             String            @db.VarChar(80)
+  badgeColor       String            @map("badge_color") @db.VarChar(40)
+  category         String            @db.VarChar(60)
+  points           Int               @default(10)
+  userAchievements UserAchievement[]
+
+  @@map("achievements")
+}
+
+model UserAchievement {
+  id            String      @id @default(uuid()) @db.Uuid
+  userId        String      @map("user_id") @db.Uuid
+  achievementId String      @map("achievement_id") @db.Uuid
+  unlockedAt    DateTime    @default(now()) @map("unlocked_at")
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, achievementId])
+  @@map("user_achievements")
+}
+
+model Notification {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  type      String   @db.VarChar(40)
+  title     String   @db.VarChar(160)
+  message   String   @db.VarChar(500)
+  link      String?  @db.VarChar(240)
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+  @@map("notifications")
+}
+
+model GameSession {
+  id           String            @id @default(uuid()) @db.Uuid
+  gameType     String            @map("game_type") @db.VarChar(40)
+  hostId       String            @map("host_id") @db.Uuid
+  matchId      String?           @map("match_id") @db.Uuid
+  status       String            @default("ACTIVE") @db.VarChar(30)
+  state        Json?
+  createdAt    DateTime          @default(now()) @map("created_at")
+  updatedAt    DateTime          @updatedAt @map("updated_at")
+  host         User              @relation("GameHost", fields: [hostId], references: [id], onDelete: Cascade)
+  participants GameParticipant[]
+
+  @@map("game_sessions")
+}
+
+model GameParticipant {
+  id        String      @id @default(uuid()) @db.Uuid
+  sessionId String      @map("session_id") @db.Uuid
+  userId    String      @map("user_id") @db.Uuid
+  score     Int         @default(0)
+  completed Boolean     @default(false)
+  answers   Json?
+  session   GameSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, userId])
+  @@map("game_participants")
+}
+
+model CallSession {
+  id         String    @id @default(uuid()) @db.Uuid
+  callerId   String    @map("caller_id") @db.Uuid
+  calleeId   String    @map("callee_id") @db.Uuid
+  matchId    String    @map("match_id") @db.Uuid
+  callType   String    @default("VIDEO") @map("call_type") @db.VarChar(20)
+  status     String    @default("CALLING") @db.VarChar(20)
+  offer      Json?
+  answer     Json?
+  candidates Json?
+  startedAt  DateTime? @map("started_at")
+  endedAt    DateTime? @map("ended_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+  caller     User      @relation("CallCaller", fields: [callerId], references: [id], onDelete: Cascade)
+  callee     User      @relation("CallCallee", fields: [calleeId], references: [id], onDelete: Cascade)
+
+  @@index([callerId, calleeId, status])
+  @@map("call_sessions")
+}
+
+model QuizAnswer {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  questionId  String   @map("question_id") @db.VarChar(80)
+  category    String   @db.VarChar(80)
+  answerValue String   @map("answer_value") @db.VarChar(250)
+  createdAt   DateTime @default(now()) @map("created_at")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, questionId])
+  @@map("quiz_answers")
+}
