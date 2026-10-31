@@ -7,7 +7,7 @@ import { liveApi } from "@/lib/api/live-client";
 import { demoCollectibles, drops as sampleDrops } from "@/data/demo";
 import type { CollectibleItem, Drop } from "@/types/roamora";
 
-export default async function TreasureMapPage() {
+export default async function TreasureMapView() {
   let drops: Drop[] = [];
   let collectibles: CollectibleItem[] = [];
 

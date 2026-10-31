@@ -6,12 +6,7 @@ import { PageHeading } from "@/components/ui";
 import { liveApi } from "@/lib/api/live-client";
 import type { AccountProfile, ChatMessage, Match } from "@/types/roamora";
 
-export default async function ChatPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ matchId?: string; callId?: string }>;
-}) {
-  const { matchId } = await searchParams;
+export default async function ChatView({ matchId }: { matchId?: string }) {
   let people: Match[] = [];
   let user: AccountProfile | null = null;
   let messages: ChatMessage[] = [];

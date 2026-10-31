@@ -105,6 +105,8 @@ Deploy the Next.js frontend from the repository root on Vercel. Set the server-s
 environment variable `ROAMORA_API_URL` to the Render service origin only (for example,
 `https://<your-render-service>.onrender.com`, without `/api/v1`). The checked-in
 `app/api/v1/[...segments]/route.ts` proxies browser API calls to that service.
+Application pages share a catch-all route entry so the deployment stays within
+Vercel Hobby's serverless function limit while keeping their existing URL paths.
 
 Deploy the Express API from the `backend` directory on Render. Use
 `npm ci && npm run build` as the build command and `npm start` as the start command.

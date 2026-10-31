@@ -6,7 +6,7 @@ import { PageFrame } from "@/components/page-frame";
 import { PageHeading } from "@/components/ui";
 import { api } from "@/lib/api";
 
-export default async function ExplorePage() {
+export default async function ExploreView() {
   const places = await api.listPlaces();
   return (
     <PageFrame>

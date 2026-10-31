@@ -4,7 +4,7 @@ import { NotificationsView } from "@/components/notifications-view";
 import { liveApi } from "@/lib/api/live-client";
 import type { AppNotification } from "@/types/roamora";
 
-export default async function NotificationsPage() {
+export default async function NotificationsViewPage() {
   let notifications: AppNotification[] = [];
 
   try {

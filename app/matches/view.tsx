@@ -4,7 +4,7 @@ import { PageHeading } from "@/components/ui";
 import { liveApi } from "@/lib/api/live-client";
 import type { Match } from "@/types/roamora";
 
-export default async function MatchesPage() {
+export default async function MatchesView() {
   let people: Match[] = [];
   let currentUserId = "";
 

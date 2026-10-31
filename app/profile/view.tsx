@@ -3,7 +3,7 @@ import { ProfileEditor } from "@/components/profile-editor";
 import { PageHeading } from "@/components/ui";
 import { liveApi } from "@/lib/api/live-client";
 
-export default async function ProfilePage() {
+export default async function ProfileView() {
   const user = await liveApi.getCurrentUser();
   return (
     <PageFrame>

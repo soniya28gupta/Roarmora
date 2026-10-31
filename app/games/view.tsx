@@ -2,12 +2,7 @@ import { PageFrame } from "@/components/page-frame";
 import { PageHeading } from "@/components/ui";
 import { GamesHub } from "@/components/games-hub";
 
-export default async function GamesPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ matchId?: string }>;
-}) {
-  const { matchId } = await searchParams;
+export default async function GamesView({ matchId }: { matchId?: string }) {
   return (
     <PageFrame>
       <div className="content-page">
@@ -26,4 +21,3 @@ export default async function GamesPage({
     </PageFrame>
   );
 }
-

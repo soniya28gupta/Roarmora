@@ -5,7 +5,7 @@ import { liveApi } from "@/lib/api/live-client";
 import { demoAchievements, demoCollectibles } from "@/data/demo";
 import type { Achievement, UserInventoryItem } from "@/types/roamora";
 
-export default async function InventoryPage() {
+export default async function InventoryViewPage() {
   let inventory: UserInventoryItem[] = [];
   let achievements: Achievement[] = [];
   let totalPoints = 0;

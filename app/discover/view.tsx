@@ -3,7 +3,7 @@ import { SwipeDeck } from "@/components/swipe-deck";
 import { PageHeading } from "@/components/ui";
 import { liveApi } from "@/lib/api/live-client";
 
-export default async function DiscoverPage() {
+export default async function DiscoverView() {
   const people = await liveApi.listProfiles();
   return (
     <PageFrame>
