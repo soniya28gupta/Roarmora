@@ -1,5 +1,5 @@
 {
-    "framework": "nextjs",
-    "buildCommand": "npm run build",
-    "installCommand": "npm install"
+  "framework": "nextjs",
+  "buildCommand": "next build && node -e \"if (process.env.VERCEL) { try { require('fs').rmSync('api', { recursive: true, force: true }); } catch (e) {} }\"",
+  "installCommand": "npm install"
 }

@@ -206,8 +206,8 @@ api.get("/profiles", requireAuth, async (request: AuthenticatedRequest, response
     ]);
 
     const excluded = new Set([
-      ...alreadySwiped.map(({ targetId }) => targetId),
-      ...blocked.flatMap(({ blockerId, blockedId }) => [blockerId, blockedId]),
+      ...alreadySwiped.map(({ targetId }: { targetId: string }) => targetId),
+      ...blocked.flatMap(({ blockerId, blockedId }: { blockerId: string; blockedId: string }) => [blockerId, blockedId]),
     ]);
 
     const myAnswersMap: Record<string, string> = {};
@@ -215,9 +215,9 @@ api.get("/profiles", requireAuth, async (request: AuthenticatedRequest, response
       myAnswersMap[ans.questionId] = ans.answerValue;
     }
 
-    const eligible = candidateUsers.filter((u) => !excluded.has(u.id));
+    const eligible = candidateUsers.filter((u: any) => !excluded.has(u.id));
 
-    const results = eligible.map((u) => {
+    const results = eligible.map((u: any) => {
       const otherAnswersMap: Record<string, string> = {};
       for (const ans of u.quizAnswers) {
         otherAnswersMap[ans.questionId] = ans.answerValue;
@@ -245,7 +245,7 @@ api.get("/profiles", requireAuth, async (request: AuthenticatedRequest, response
       };
     });
 
-    results.sort((a, b) => b.compatibility.score - a.compatibility.score);
+    results.sort((a: any, b: any) => b.compatibility.score - a.compatibility.score);
     response.json(results);
   } catch (error) {
     next(error);
@@ -260,7 +260,7 @@ api.post("/swipes", requireAuth, fixedWindowLimit(90, 60_000), async (request: A
     }
     const pair = canonicalPair(request.userId!, targetUserId);
 
-    await prisma.$transaction(async (transaction) => {
+    await prisma.$transaction(async (transaction: any) => {
       const target = await transaction.user.findUnique({
         where: { id: targetUserId },
         select: { id: true },
@@ -289,7 +289,7 @@ api.post("/swipes", requireAuth, fixedWindowLimit(90, 60_000), async (request: A
       return;
     }
 
-    const matchInfo = await prisma.$transaction(async (transaction) => {
+    const matchInfo = await prisma.$transaction(async (transaction: any) => {
       const mutual = await transaction.swipe.findFirst({
         where: { actorId: targetUserId, targetId: request.userId, direction: "LIKE" },
       });
@@ -376,7 +376,7 @@ api.get("/matches", requireAuth, async (request: AuthenticatedRequest, response,
     });
 
     const visible = await Promise.all(
-      matches.map(async (match) => {
+      matches.map(async (match: any) => {
         const other = match.userAId === request.userId ? match.userB : match.userA;
         const blocked = await prisma.block.findFirst({
           where: {
@@ -511,7 +511,7 @@ api.get("/drops", requireAuth, async (request: AuthenticatedRequest, response, n
           )
         ORDER BY d.starts_at ASC LIMIT 100
       `;
-      response.json(rows.map(({ hostId: _hostId, ...drop }) => drop));
+      response.json(rows.map(({ hostId: _hostId, ...drop }: any) => drop));
       return;
     }
 
@@ -519,7 +519,7 @@ api.get("/drops", requireAuth, async (request: AuthenticatedRequest, response, n
       where: { OR: [{ blockerId: request.userId }, { blockedId: request.userId }] },
       select: { blockerId: true, blockedId: true },
     });
-    const hiddenHosts = [...new Set(blocks.map(({ blockerId, blockedId }) =>
+    const hiddenHosts = [...new Set(blocks.map(({ blockerId, blockedId }: { blockerId: string; blockedId: string }) =>
       blockerId === request.userId ? blockedId : blockerId,
     ))];
 
@@ -592,7 +592,7 @@ api.post("/drops/:dropId/collect", requireAuth, fixedWindowLimit(15, 60_000), as
       ? REMOTE_EXPLORE_MAX_DISTANCE_METERS
       : DROP_COLLECTION_RADIUS_METERS;
 
-    const collection = await prisma.$transaction(async (transaction) => {
+    const collection = await prisma.$transaction(async (transaction: any) => {
       const drop = await transaction.drop.findUnique({
         where: { id: dropId },
       });
@@ -698,7 +698,7 @@ api.post("/collectibles/:itemId/collect", requireAuth, fixedWindowLimit(20, 60_0
       }
     }
 
-    const inventoryRecord = await prisma.$transaction(async (transaction) => {
+    const inventoryRecord = await prisma.$transaction(async (transaction: any) => {
       const inv = await transaction.userInventory.upsert({
         where: { userId_itemId: { userId: request.userId!, itemId: item.id } },
         create: { userId: request.userId!, itemId: item.id, quantity: 1 },
@@ -763,7 +763,7 @@ api.post("/inventory/:itemId/use", requireAuth, async (request: AuthenticatedReq
       const match = await prisma.match.findUnique({ where: { id: targetMatchId } });
       const recipientId = match!.userAId === request.userId ? match!.userBId : match!.userAId;
 
-      await prisma.$transaction(async (transaction) => {
+      await prisma.$transaction(async (transaction: any) => {
         // Decrement quantity
         if (inv.quantity === 1) {
           await transaction.userInventory.delete({ where: { id: inv.id } });
@@ -817,13 +817,13 @@ api.get("/achievements", requireAuth, async (request: AuthenticatedRequest, resp
       }),
     ]);
 
-    const unlockedSet = new Set(userAchievements.map((ua) => ua.achievementId));
-    const totalPoints = userAchievements.reduce((sum, ua) => sum + ua.achievement.points, 0);
+    const unlockedSet = new Set(userAchievements.map((ua: any) => ua.achievementId));
+    const totalPoints = userAchievements.reduce((sum: number, ua: any) => sum + ua.achievement.points, 0);
 
-    const payload = all.map((ach) => ({
+    const payload = all.map((ach: any) => ({
       ...ach,
       unlocked: unlockedSet.has(ach.id),
-      unlockedAt: userAchievements.find((ua) => ua.achievementId === ach.id)?.unlockedAt ?? null,
+      unlockedAt: userAchievements.find((ua: any) => ua.achievementId === ach.id)?.unlockedAt ?? null,
     }));
 
     response.json({ achievements: payload, totalPoints });
@@ -843,7 +843,7 @@ api.get("/notifications", requireAuth, async (request: AuthenticatedRequest, res
       orderBy: { createdAt: "desc" },
       take: 50,
     });
-    const unreadCount = notifications.filter((n) => !n.read).length;
+    const unreadCount = notifications.filter((n: any) => !n.read).length;
     response.json({ notifications, unreadCount });
   } catch (error) {
     next(error);
@@ -900,7 +900,7 @@ api.post("/quiz/submit", requireAuth, async (request: AuthenticatedRequest, resp
   try {
     const { answers } = quizSubmitSchema.parse(request.body);
 
-    await prisma.$transaction(async (transaction) => {
+    await prisma.$transaction(async (transaction: any) => {
       for (const ans of answers) {
         await transaction.quizAnswer.upsert({
           where: { userId_questionId: { userId: request.userId!, questionId: ans.questionId } },
@@ -1002,7 +1002,7 @@ api.post("/games/start", requireAuth, async (request: AuthenticatedRequest, resp
       initialQuestions = DAILY_QUIZ_QUESTIONS;
     }
 
-    const session = await prisma.$transaction(async (transaction) => {
+    const session = await prisma.$transaction(async (transaction: any) => {
       const gs = await transaction.gameSession.create({
         data: {
           gameType,
@@ -1060,7 +1060,7 @@ api.get("/games/:sessionId", requireAuth, async (request: AuthenticatedRequest, 
       },
     });
     if (!session) throw new HttpError(404, "Game session not found");
-    const isParticipant = session.participants.some((p) => p.userId === request.userId) || session.hostId === request.userId;
+    const isParticipant = session.participants.some((p: any) => p.userId === request.userId) || session.hostId === request.userId;
     if (!isParticipant) throw new HttpError(403, "Access denied to this game session");
 
     response.json(session);
@@ -1080,7 +1080,7 @@ api.post("/games/:sessionId/action", requireAuth, async (request: AuthenticatedR
     });
     if (!session) throw new HttpError(404, "Game session not found");
 
-    const updated = await prisma.$transaction(async (transaction) => {
+    const updated = await prisma.$transaction(async (transaction: any) => {
       const participant = await transaction.gameParticipant.findUnique({
         where: { sessionId_userId: { sessionId, userId: request.userId! } },
       });
@@ -1323,7 +1323,7 @@ api.post("/matches/:matchId/messages", requireAuth, fixedWindowLimit(60, 60_000)
     await assertMatchAccess(request.userId!, matchId);
     const { body } = messageSchema.parse(request.body);
 
-    const message = await prisma.$transaction(async (transaction) => {
+    const message = await prisma.$transaction(async (transaction: any) => {
       const msg = await transaction.message.create({
         data: { matchId, senderId: request.userId!, body },
         select: { id: true, senderId: true, body: true, createdAt: true },
@@ -1359,7 +1359,7 @@ api.post("/blocks", requireAuth, async (request: AuthenticatedRequest, response,
     const target = await prisma.user.findUnique({ where: { id: targetUserId }, select: { id: true } });
     if (!target) throw new HttpError(404, "Profile not found");
 
-    await prisma.$transaction(async (transaction) => {
+    await prisma.$transaction(async (transaction: any) => {
       await transaction.block.upsert({
         where: { blockerId_blockedId: { blockerId: request.userId!, blockedId: targetUserId } },
         create: { blockerId: request.userId!, blockedId: targetUserId },
