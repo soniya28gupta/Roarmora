@@ -1,5 +1,10 @@
 # Ignore the separate Express/TypeScript backend deployed to Render
+backend
 backend/
+backend/**
+api
+api/
+api/**
 
 # Ignore local environment and cache files
 .env*.local
