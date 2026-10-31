@@ -80,12 +80,18 @@ All endpoints reside under `/api/v1` and authenticated routes use the HttpOnly s
 
 ## Database & Scripts
 
-```bash
-# Push schema changes to PostgreSQL
-npm run db:generate
-npx prisma db push
+The API uses PostgreSQL. Set `DATABASE_URL` in the backend environment to the actual
+database connection string; `.env.example` intentionally leaves it blank. The initial
+migration enables PostGIS. `npm run build` generates the Prisma client before compiling.
 
-# Seed demo profiles, items, achievements, and places
+```bash
+# Generate the Prisma client (also run by the build command)
+npm run db:generate
+
+# Apply checked-in migrations only after verifying the configured database
+npm run db:migrate
+
+# Optional: seed development/demo data; do not run against production without review
 npm run db:seed
 
 # Run tests
@@ -94,3 +100,11 @@ npm test
 # Build TypeScript to dist/
 npm run build
 ```
+
+## Render deployment
+
+Set the Render service root directory to `backend`, the build command to
+`npm ci && npm run build`, and the start command to `npm start`. Render provides `PORT`.
+Configure `DATABASE_URL` with the real PostgreSQL connection string and `WEB_ORIGIN`
+with the deployed frontend origin. In production, `NODE_ENV=production` makes session
+cookies secure; do not expose these backend environment values in frontend code.

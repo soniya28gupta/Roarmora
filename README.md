@@ -48,7 +48,7 @@
    - Minimum age 18 validation with strict UTC date-of-birth checking.
    - Inclusive gender and discovery preferences.
    - Account deletion control with cascading data purge.
-   - PostgreSQL database with spatial calculations (earthdistance & PostGIS support).
+   - PostgreSQL database with PostGIS enabled for spatial support.
    - Passwords hashed with bcrypt cost 12.
    - HttpOnly, SameSite cookies for sessions.
 
@@ -62,15 +62,15 @@
 
 ### 1. Start the API Backend
 ```bash
-cd api
-npm install
-# Configure your database connection in api/.env:
-# DATABASE_URL=postgresql://postgres:admin@localhost:5432/roamora?schema=public
+cd backend
+npm ci
+# Copy .env.example to .env and set DATABASE_URL to your real PostgreSQL connection string.
 npm run db:generate
-npm run db:seed
+# After verifying the target database, apply the checked-in migrations if needed:
+# npm run db:migrate
 npm run dev
 ```
-The API server listens at `http://localhost:8081`. Verify readiness at `http://localhost:8081/health`.
+The API server listens at `http://localhost:8081`. Verify database readiness at `http://localhost:8081/health`.
 
 ### 2. Start the Frontend
 In another terminal, from the project root:
@@ -84,9 +84,10 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ## 🧪 Testing and Verification
 
-Run the full test suite (31 tests across frontend and API):
+Run the frontend and backend test suites:
 ```bash
 npm test
+npm --prefix backend test
 ```
 
 Run production builds:
@@ -95,5 +96,18 @@ Run production builds:
 npm run build
 
 # Backend API build
-cd api && npm run build
+npm --prefix backend run build
 ```
+
+### Deployment configuration
+
+Deploy the Next.js frontend from the repository root on Vercel. Set the server-side
+environment variable `ROAMORA_API_URL` to the Render service origin only (for example,
+`https://<your-render-service>.onrender.com`, without `/api/v1`). The checked-in
+`app/api/v1/[...segments]/route.ts` proxies browser API calls to that service.
+
+Deploy the Express API from the `backend` directory on Render. Use
+`npm ci && npm run build` as the build command and `npm start` as the start command.
+Render supplies `PORT`; configure `DATABASE_URL` with the actual PostgreSQL connection
+string, and set `WEB_ORIGIN` to the deployed frontend origin. Do not copy placeholder
+credentials or apply migrations until the database target has been verified.
