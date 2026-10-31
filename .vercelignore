@@ -2,6 +2,11 @@
 /backend/
 /backend/**
 
+# Ignore a legacy root-level API service if it exists in an older deployment snapshot.
+# The active Next.js proxy lives under app/api and remains part of the build.
+/api/
+/api/**
+
 # Ignore local environment and cache files
 .env*.local
 .next-build/
