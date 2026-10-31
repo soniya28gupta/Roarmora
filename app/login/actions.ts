@@ -11,7 +11,8 @@ type AuthResponse = {
 };
 
 export async function signIn(email: string, password: string): Promise<SignInResult> {
-  const apiOrigin = process.env.ROAMORA_API_URL ?? "http://127.0.0.1:8081";
+  const defaultApi = process.env.NODE_ENV === "production" ? "https://roarmora-api.onrender.com" : "http://127.0.0.1:8081";
+  const apiOrigin = process.env.ROAMORA_API_URL ?? defaultApi;
 
   let response: Response;
   try {

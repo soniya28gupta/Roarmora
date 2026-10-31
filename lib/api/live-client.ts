@@ -18,7 +18,8 @@ interface ApiErrorBody {
   code?: string;
 }
 
-const apiOrigin = process.env.ROAMORA_API_URL ?? "http://127.0.0.1:8081";
+const defaultApi = process.env.NODE_ENV === "production" ? "https://roarmora-api.onrender.com" : "http://127.0.0.1:8081";
+const apiOrigin = process.env.ROAMORA_API_URL ?? defaultApi;
 
 async function request<T>(path: string): Promise<T> {
   const cookieJar = await cookies();
