@@ -1374,6 +1374,86 @@ api.post("/blocks", requireAuth, async (request: AuthenticatedRequest, response,
   }
 });
 
+api.get("/blocks", requireAuth, async (request: AuthenticatedRequest, response, next) => {
+  try {
+    const blocks = await prisma.block.findMany({
+      where: { blockerId: request.userId },
+      include: {
+        blocked: {
+          select: {
+            id: true,
+            profile: {
+              select: {
+                displayName: true,
+                imageUrl: true,
+                photos: true,
+                city: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    const payload = blocks.map((b: any) => ({
+      id: b.blocked.id,
+      name: b.blocked.profile?.displayName ?? "User",
+      avatarUrl: b.blocked.profile?.imageUrl || b.blocked.profile?.photos?.[0] || "",
+      city: b.blocked.profile?.city ?? "",
+      blockedAt: b.createdAt,
+    }));
+
+    response.json(payload);
+  } catch (error) {
+    next(error);
+  }
+});
+
+api.delete("/blocks/:targetUserId", requireAuth, async (request: AuthenticatedRequest, response, next) => {
+  try {
+    const targetUserId = routeParam(request.params.targetUserId);
+    await prisma.$transaction(async (transaction: any) => {
+      await transaction.block.deleteMany({
+        where: { blockerId: request.userId!, blockedId: targetUserId },
+      });
+      await transaction.swipe.deleteMany({
+        where: {
+          OR: [
+            { actorId: request.userId!, targetId: targetUserId },
+            { actorId: targetUserId, targetId: request.userId! },
+          ],
+        },
+      });
+    });
+    response.status(204).end();
+  } catch (error) {
+    next(error);
+  }
+});
+
+api.post("/blocks/unblock", requireAuth, async (request: AuthenticatedRequest, response, next) => {
+  try {
+    const { targetUserId } = blockSchema.parse(request.body);
+    await prisma.$transaction(async (transaction: any) => {
+      await transaction.block.deleteMany({
+        where: { blockerId: request.userId!, blockedId: targetUserId },
+      });
+      await transaction.swipe.deleteMany({
+        where: {
+          OR: [
+            { actorId: request.userId!, targetId: targetUserId },
+            { actorId: targetUserId, targetId: request.userId! },
+          ],
+        },
+      });
+    });
+    response.status(204).end();
+  } catch (error) {
+    next(error);
+  }
+});
+
 api.post("/reports", requireAuth, async (request: AuthenticatedRequest, response, next) => {
   try {
     const input = reportSchema.parse(request.body);

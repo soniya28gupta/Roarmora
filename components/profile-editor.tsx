@@ -15,6 +15,7 @@ import {
   Zap,
 } from "lucide-react";
 import { apiRequest } from "@/lib/api/browser-client";
+import { BlockedUsersManager } from "@/components/blocked-users-manager";
 import type { AccountProfile } from "@/types/roamora";
 
 const availableInterests = [
@@ -370,6 +371,9 @@ export function ProfileEditor({ user }: { user: AccountProfile }) {
                 <option value={50000}>50 kilometers (Metro region)</option>
               </select>
             </div>
+
+            {/* Blocked Users Management */}
+            <BlockedUsersManager />
           </div>
 
           {/* Account Deletion Control (Requirements 2 & 12) */}
