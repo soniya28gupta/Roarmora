@@ -1,7 +1,7 @@
 import "dotenv/config";
 import cookieParser from "cookie-parser";
 import cors from "cors";
-import express from "express";
+import express, { type Response, type NextFunction } from "express";
 import helmet from "helmet";
 import { authRouter, requireAuth, type AuthenticatedRequest } from "./auth.js";
 import { prisma } from "./db.js";
@@ -23,6 +23,7 @@ import {
   TRUTH_OR_DARE_PROMPTS,
   TREASURE_RACE_QUESTS,
 } from "./games.js";
+import { randomUUID } from "node:crypto";
 import {
   dropSchema,
   dropCollectionSchema,
@@ -31,6 +32,8 @@ import {
   messageSchema,
   preferenceSchema,
   profileSchema,
+  photoUploadSchema,
+  livenessVerifySchema,
   reportSchema,
   searchSchema,
   swipeSchema,
@@ -38,19 +41,94 @@ import {
   callAnswerSchema,
   callCandidateSchema,
   gameStartSchema,
+  gameInviteSchema,
   gameActionSchema,
   quizSubmitSchema,
   useItemSchema,
 } from "./validation.js";
+
+export interface ProfileCompletionResult {
+  percentage: number;
+  isComplete: boolean;
+  milestones: {
+    basicAccountAndGmail: boolean;
+    demographicsAndBio: boolean;
+    hobbiesAndPreferences: boolean;
+    minTwoPhotos: boolean;
+    faceLivenessVerified: boolean;
+  };
+}
+
+export function calculateProfileCompletion(params: {
+  email?: string | null;
+  googleId?: string | null;
+  isEmailVerified?: boolean;
+  isIdentityVerified?: boolean;
+  age?: number;
+  profile?: {
+    displayName?: string | null;
+    bio?: string | null;
+    gender?: string | null;
+    lookingFor?: string | null;
+    connectionGoal?: string | null;
+    interests?: string[];
+    photos?: string[];
+  } | null;
+  preferences?: {
+    minAge?: number;
+    maxAge?: number;
+    maxDistanceKm?: number;
+  } | null;
+}): ProfileCompletionResult {
+  const basicAccountAndGmail = Boolean(
+    params.email && (params.isEmailVerified || params.googleId),
+  );
+
+  const bioTrimmed = params.profile?.bio?.trim() ?? "";
+  const demographicsAndBio = Boolean(
+    params.profile?.displayName?.trim() &&
+    (params.age ?? 0) >= 18 &&
+    params.profile?.gender?.trim() &&
+    bioTrimmed.length > 0 &&
+    bioTrimmed.length <= 150,
+  );
+
+  const hobbiesAndPreferences = Boolean(
+    (params.profile?.interests?.length ?? 0) >= 1 &&
+    params.preferences &&
+    (params.profile?.connectionGoal?.trim() || params.profile?.lookingFor?.trim()),
+  );
+
+  const minTwoPhotos = (params.profile?.photos?.length ?? 0) >= 2;
+  const faceLivenessVerified = Boolean(params.isIdentityVerified);
+
+  const milestones = {
+    basicAccountAndGmail,
+    demographicsAndBio,
+    hobbiesAndPreferences,
+    minTwoPhotos,
+    faceLivenessVerified,
+  };
+
+  const completedCount = Object.values(milestones).filter(Boolean).length;
+  const percentage = completedCount * 20;
+
+  return {
+    percentage,
+    isComplete: percentage === 100,
+    milestones,
+  };
+}
 
 export const app = express();
 const api = express.Router();
 const webOrigin = process.env.WEB_ORIGIN ?? "http://localhost:3000";
 
 app.disable("x-powered-by");
+app.set("trust proxy", 1);
 app.use(helmet());
 app.use(cors({ origin: webOrigin, credentials: true }));
-app.use(express.json({ limit: "64kb" }));
+app.use(express.json({ limit: "6mb" }));
 app.use(cookieParser());
 
 app.get("/health", async (_request, response) => {
@@ -66,20 +144,24 @@ app.get("/health", async (_request, response) => {
   }
 });
 
-app.use("/api/v1/auth", fixedWindowLimit(10, 15 * 60 * 1000), authRouter);
+app.use("/api/v1/auth", fixedWindowLimit(60, 15 * 60 * 1000), authRouter);
 app.use("/api/v1", api);
 
 // -----------------------------------------------------------------------------
 // USER & PROFILE ENDPOINTS
 // -----------------------------------------------------------------------------
 
-api.get("/me", requireAuth, async (request: AuthenticatedRequest, response, next) => {
+const getMeHandler = async (request: AuthenticatedRequest, response: Response, next: NextFunction) => {
   try {
     const user = await prisma.user.findUnique({
       where: { id: request.userId },
       select: {
         id: true,
         email: true,
+        googleId: true,
+        isEmailVerified: true,
+        isIdentityVerified: true,
+        onboardingCompleted: true,
         profile: true,
         preferences: true,
         birthDate: true,
@@ -99,11 +181,39 @@ api.get("/me", requireAuth, async (request: AuthenticatedRequest, response, next
       where: { userId: user.id, read: false },
     });
 
+    const completion = calculateProfileCompletion({
+      email: user.email,
+      googleId: user.googleId,
+      isEmailVerified: user.isEmailVerified,
+      isIdentityVerified: user.isIdentityVerified,
+      age,
+      profile: user.profile,
+      preferences: user.preferences,
+    });
+
+    const hasLegacyProfile = Boolean(
+      user.profile &&
+      user.profile.displayName &&
+      user.profile.bio &&
+      user.profile.interests.length > 0,
+    );
+
     response.json({
       id: user.id,
       email: user.email,
+      birthDate: user.birthDate.toISOString().slice(0, 10),
       age,
-      profile: user.profile,
+      googleLinked: Boolean(user.googleId),
+      isEmailVerified: user.isEmailVerified,
+      isIdentityVerified: user.isIdentityVerified,
+      onboardingCompleted: user.onboardingCompleted || hasLegacyProfile,
+      completion,
+      profile: user.profile
+        ? {
+            ...user.profile,
+            isIdentityVerified: user.isIdentityVerified,
+          }
+        : null,
       preferences: user.preferences,
       stats: {
         itemsCount: user._count.inventories,
@@ -115,22 +225,268 @@ api.get("/me", requireAuth, async (request: AuthenticatedRequest, response, next
   } catch (error) {
     next(error);
   }
-});
+};
 
-api.patch("/profile", requireAuth, async (request: AuthenticatedRequest, response, next) => {
+api.get("/me", requireAuth, getMeHandler);
+api.get("/auth/me", requireAuth, getMeHandler);
+authRouter.get("/me", requireAuth, getMeHandler);
+
+api.get("/profile/completion", requireAuth, async (request: AuthenticatedRequest, response, next) => {
   try {
-    const data = profileSchema.parse(request.body);
-    const profile = await prisma.profile.update({
-      where: { userId: request.userId },
-      data,
+    const user = await prisma.user.findUnique({
+      where: { id: request.userId },
+      select: {
+        email: true,
+        googleId: true,
+        isEmailVerified: true,
+        isIdentityVerified: true,
+        birthDate: true,
+        profile: true,
+        preferences: true,
+      },
     });
-    response.json(profile);
+    if (!user) throw new HttpError(404, "Account not found");
+    const completion = calculateProfileCompletion({
+      email: user.email,
+      googleId: user.googleId,
+      isEmailVerified: user.isEmailVerified,
+      isIdentityVerified: user.isIdentityVerified,
+      age: ageOn(user.birthDate),
+      profile: user.profile,
+      preferences: user.preferences,
+    });
+    response.json(completion);
   } catch (error) {
     next(error);
   }
 });
 
-api.put("/preferences", requireAuth, async (request: AuthenticatedRequest, response, next) => {
+const updateProfileHandler = async (request: AuthenticatedRequest, response: Response, next: NextFunction) => {
+  try {
+    const parsed = profileSchema.parse(request.body);
+    const { birthDate, ...profileData } = parsed;
+
+    if (birthDate) {
+      await prisma.user.update({
+        where: { id: request.userId },
+        data: { birthDate: new Date(`${birthDate}T00:00:00.000Z`) },
+      });
+    }
+
+    if (profileData.photos && profileData.photos.length > 0 && profileData.imageUrl === undefined) {
+      profileData.imageUrl = profileData.photos[0];
+    }
+
+    const profile = await prisma.profile.update({
+      where: { userId: request.userId },
+      data: profileData,
+    });
+    response.json(profile);
+  } catch (error) {
+    next(error);
+  }
+};
+
+api.patch("/profile", requireAuth, updateProfileHandler);
+api.put("/profile", requireAuth, updateProfileHandler);
+
+api.post("/profile/photos", requireAuth, async (request: AuthenticatedRequest, response, next) => {
+  try {
+    const { photos } = photoUploadSchema.parse(request.body);
+    const profile = await prisma.profile.update({
+      where: { userId: request.userId },
+      data: {
+        photos,
+        imageUrl: photos[0],
+      },
+    });
+    response.status(200).json({
+      photos: profile.photos,
+      imageUrl: profile.imageUrl,
+      count: profile.photos.length,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+api.post("/profile/onboarding-complete", requireAuth, async (request: AuthenticatedRequest, response, next) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: request.userId },
+      include: { profile: true, preferences: true },
+    });
+    if (!user || !user.profile) {
+      throw new HttpError(404, "Profile not found");
+    }
+
+    if ((user.profile.photos?.length ?? 0) < 2) {
+      throw new HttpError(400, "Please upload at least 2 photos to complete onboarding.");
+    }
+    if (!user.profile.bio || user.profile.bio.trim().length === 0 || user.profile.bio.trim().length > 150) {
+      throw new HttpError(400, "Bio is required and must be 150 characters or fewer.");
+    }
+    if ((user.profile.interests?.length ?? 0) < 1) {
+      throw new HttpError(400, "Please select at least 1 hobby or interest.");
+    }
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { onboardingCompleted: true },
+    });
+
+    const completion = calculateProfileCompletion({
+      email: user.email,
+      googleId: user.googleId,
+      isEmailVerified: user.isEmailVerified,
+      isIdentityVerified: user.isIdentityVerified,
+      age: ageOn(user.birthDate),
+      profile: user.profile,
+      preferences: user.preferences,
+    });
+
+    response.status(200).json({
+      onboardingCompleted: true,
+      completion,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Face Liveness Verification (Milestone 1 — FaceTec / Jumio Integration)
+api.post("/verification/liveness/session", requireAuth, async (request: AuthenticatedRequest, response, next) => {
+  try {
+    const sessionId = randomUUID();
+    await prisma.profile.update({
+      where: { userId: request.userId },
+      data: { livenessSessionId: sessionId },
+    });
+
+    const facetecConfigured = Boolean(
+      process.env.FACETEC_SERVER_URL && process.env.FACETEC_DEVICE_KEY_IDENTIFIER,
+    );
+    const jumioConfigured = Boolean(
+      process.env.JUMIO_API_TOKEN && process.env.JUMIO_API_SECRET,
+    );
+
+    const provider = facetecConfigured ? "facetec" : jumioConfigured ? "jumio" : "unconfigured";
+
+    response.status(200).json({
+      sessionId,
+      provider,
+      providerConfigured: facetecConfigured || jumioConfigured,
+      deviceKeyIdentifier: process.env.FACETEC_DEVICE_KEY_IDENTIFIER ?? null,
+      requiredEnvVars: facetecConfigured || jumioConfigured
+        ? []
+        : ["FACETEC_SERVER_URL", "FACETEC_DEVICE_KEY_IDENTIFIER", "JUMIO_API_TOKEN", "JUMIO_API_SECRET"],
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+api.post("/verification/liveness/verify", requireAuth, async (request: AuthenticatedRequest, response, next) => {
+  try {
+    const input = livenessVerifySchema.parse(request.body);
+    const profile = await prisma.profile.findUnique({
+      where: { userId: request.userId },
+      select: { livenessSessionId: true },
+    });
+
+    if (!profile || profile.livenessSessionId !== input.sessionId) {
+      throw new HttpError(400, "Invalid or expired liveness verification session. Please start a new scan.");
+    }
+
+    const facetecServerUrl = process.env.FACETEC_SERVER_URL;
+    const facetecKey = process.env.FACETEC_DEVICE_KEY_IDENTIFIER;
+    const jumioToken = process.env.JUMIO_API_TOKEN;
+    const jumioSecret = process.env.JUMIO_API_SECRET;
+
+    if (!facetecServerUrl && !(jumioToken && jumioSecret)) {
+      response.status(503).json({
+        verified: false,
+        code: "LIVENESS_PROVIDER_NOT_CONFIGURED",
+        error: "Face Liveness provider credentials (FaceTec or Jumio) are not configured on the server. Identity verification cannot be faked or bypassed.",
+        requiredEnvVars: [
+          "FACETEC_SERVER_URL",
+          "FACETEC_DEVICE_KEY_IDENTIFIER",
+          "JUMIO_API_TOKEN",
+          "JUMIO_API_SECRET",
+        ],
+      });
+      return;
+    }
+
+    let isLiveHuman = false;
+
+    if (facetecServerUrl && facetecKey) {
+      if (!input.faceScanPayload || !input.auditTrailImage) {
+        throw new HttpError(400, "FaceTec 3D FaceScan payload and audit trail image are required.");
+      }
+      const ftResponse = await fetch(`${facetecServerUrl.replace(/\/$/, "")}/liveness-3d`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Device-Key": facetecKey,
+        },
+        body: JSON.stringify({
+          faceScan: input.faceScanPayload,
+          auditTrailImage: input.auditTrailImage,
+          lowQualityAuditTrailImage: input.lowQualityAuditTrailImage,
+          sessionId: input.sessionId,
+        }),
+      });
+      if (!ftResponse.ok) {
+        throw new HttpError(502, "FaceTec Liveness Server rejected or failed the verification request.");
+      }
+      const ftResult = (await ftResponse.json()) as { success?: boolean; wasProcessed?: boolean; scanResultBlob?: string };
+      isLiveHuman = Boolean(ftResult.success && ftResult.wasProcessed);
+    } else if (jumioToken && jumioSecret) {
+      const credentials = Buffer.from(`${jumioToken}:${jumioSecret}`).toString("base64");
+      const jumioBase = process.env.JUMIO_BASE_URL ?? "https://account.amer-1.jumio.ai";
+      const jumioRes = await fetch(`${jumioBase}/api/v1/accounts/${encodeURIComponent(input.sessionId)}/status`, {
+        headers: {
+          Authorization: `Basic ${credentials}`,
+          Accept: "application/json",
+          "User-Agent": "PookieMatch/1.0",
+        },
+      });
+      if (!jumioRes.ok) {
+        throw new HttpError(502, "Jumio Liveness API failed to verify the session.");
+      }
+      const jumioData = (await jumioRes.json()) as { decision?: { type?: string } };
+      isLiveHuman = jumioData.decision?.type === "PASSED";
+    }
+
+    if (!isLiveHuman) {
+      throw new HttpError(422, "Face liveness check did not pass. Please ensure good lighting and try again.");
+    }
+
+    const now = new Date();
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: request.userId },
+        data: { isIdentityVerified: true },
+      }),
+      prisma.profile.update({
+        where: { userId: request.userId },
+        data: { livenessVerifiedAt: now, livenessSessionId: null },
+      }),
+    ]);
+
+    response.status(200).json({
+      verified: true,
+      isIdentityVerified: true,
+      badge: "Pookie Verified",
+      verifiedAt: now.toISOString(),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+const updatePreferencesHandler = async (request: AuthenticatedRequest, response: Response, next: NextFunction) => {
   try {
     const data = preferenceSchema.parse(request.body);
     const preferences = await prisma.preference.upsert({
@@ -142,7 +498,10 @@ api.put("/preferences", requireAuth, async (request: AuthenticatedRequest, respo
   } catch (error) {
     next(error);
   }
-});
+};
+
+api.put("/preferences", requireAuth, updatePreferencesHandler);
+api.patch("/preferences", requireAuth, updatePreferencesHandler);
 
 // Account deletion & privacy control (Requirement 2 & 12)
 api.delete("/account", requireAuth, async (request: AuthenticatedRequest, response, next) => {
@@ -198,6 +557,7 @@ api.get("/profiles", requireAuth, async (request: AuthenticatedRequest, response
         select: {
           id: true,
           birthDate: true,
+          isIdentityVerified: true,
           profile: true,
           quizAnswers: true,
         },
@@ -240,6 +600,7 @@ api.get("/profiles", requireAuth, async (request: AuthenticatedRequest, response
         ...u.profile,
         id: u.id,
         age: ageOn(u.birthDate),
+        isIdentityVerified: Boolean(u.isIdentityVerified),
         compatibility: comp,
         distanceLabel: prefs?.locationConsent ? "Within 5 km" : undefined,
       };
@@ -1050,6 +1411,160 @@ api.post("/games/start", requireAuth, async (request: AuthenticatedRequest, resp
   }
 });
 
+api.post("/games/invite", requireAuth, async (request: AuthenticatedRequest, response, next) => {
+  try {
+    const { gameType, matchId } = gameInviteSchema.parse(request.body);
+    await assertMatchAccess(request.userId!, matchId);
+    const match = await prisma.match.findUnique({ where: { id: matchId } });
+    if (!match) throw new HttpError(404, "Match not found");
+    const targetParticipantId = match.userAId === request.userId ? match.userBId : match.userAId;
+
+    let initialQuestions: any = null;
+    if (gameType === "VIBE_CHECK") {
+      initialQuestions = VIBE_TRIVIA_QUESTIONS;
+    } else if (gameType === "TRUTH_OR_DARE") {
+      initialQuestions = TRUTH_OR_DARE_PROMPTS;
+    } else if (gameType === "TREASURE_RACE") {
+      initialQuestions = TREASURE_RACE_QUESTS;
+    } else {
+      initialQuestions = DAILY_QUIZ_QUESTIONS;
+    }
+
+    // Expire previous pending invites for this match
+    await prisma.gameSession.updateMany({
+      where: { matchId, status: "INVITED" },
+      data: { status: "EXPIRED" },
+    });
+
+    const session = await prisma.$transaction(async (transaction: any) => {
+      const gs = await transaction.gameSession.create({
+        data: {
+          gameType,
+          hostId: request.userId!,
+          matchId,
+          status: "INVITED",
+          state: {
+            content: initialQuestions,
+            round: 1,
+            history: [],
+          },
+        },
+      });
+
+      await transaction.gameParticipant.create({
+        data: { sessionId: gs.id, userId: request.userId! },
+      });
+
+      await transaction.gameParticipant.create({
+        data: { sessionId: gs.id, userId: targetParticipantId },
+      });
+
+      const myProfile = await transaction.profile.findUnique({ where: { userId: request.userId } });
+      await transaction.notification.create({
+        data: {
+          userId: targetParticipantId,
+          type: "INVITE",
+          title: `Mini-Game Invite from ${myProfile?.displayName ?? "Match"}! 🎮`,
+          message: `Invited you to play ${gameType.replace(/_/g, " ")}. Tap to play together!`,
+          link: `/games?matchId=${matchId}&sessionId=${gs.id}`,
+        },
+      });
+
+      return transaction.gameSession.findUnique({
+        where: { id: gs.id },
+        include: {
+          host: { include: { profile: true } },
+          participants: { include: { user: { include: { profile: true } } } },
+        },
+      });
+    });
+
+    response.status(201).json(session);
+  } catch (error) {
+    next(error);
+  }
+});
+
+api.get("/games/invites", requireAuth, async (request: AuthenticatedRequest, response, next) => {
+  try {
+    const invites = await prisma.gameSession.findMany({
+      where: {
+        status: "INVITED",
+        hostId: { not: request.userId },
+        participants: { some: { userId: request.userId } },
+      },
+      include: {
+        host: { include: { profile: true } },
+        participants: { include: { user: { include: { profile: true } } } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+    });
+    response.json(invites);
+  } catch (error) {
+    next(error);
+  }
+});
+
+api.post("/games/:sessionId/accept", requireAuth, async (request: AuthenticatedRequest, response, next) => {
+  try {
+    const sessionId = routeParam(request.params.sessionId);
+    const session = await prisma.gameSession.findUnique({
+      where: { id: sessionId },
+      include: { participants: true },
+    });
+    if (!session) throw new HttpError(404, "Game session not found");
+    const isParticipant = session.participants.some((p: any) => p.userId === request.userId);
+    if (!isParticipant) throw new HttpError(403, "Not authorized");
+
+    const updated = await prisma.gameSession.update({
+      where: { id: sessionId },
+      data: { status: "ACTIVE" },
+      include: {
+        host: { include: { profile: true } },
+        participants: { include: { user: { include: { profile: true } } } },
+      },
+    });
+
+    const myProfile = await prisma.profile.findUnique({ where: { userId: request.userId } });
+    await prisma.notification.create({
+      data: {
+        userId: session.hostId,
+        type: "INVITE",
+        title: `${myProfile?.displayName ?? "Match"} accepted your game invite! 🎮`,
+        message: `Game room is ready for ${session.gameType.replace(/_/g, " ")}.`,
+        link: `/games?matchId=${session.matchId}&sessionId=${session.id}`,
+      },
+    });
+
+    response.json(updated);
+  } catch (error) {
+    next(error);
+  }
+});
+
+api.post("/games/:sessionId/decline", requireAuth, async (request: AuthenticatedRequest, response, next) => {
+  try {
+    const sessionId = routeParam(request.params.sessionId);
+    const session = await prisma.gameSession.findUnique({
+      where: { id: sessionId },
+      include: { participants: true },
+    });
+    if (!session) throw new HttpError(404, "Game session not found");
+    const isParticipant = session.participants.some((p: any) => p.userId === request.userId);
+    if (!isParticipant) throw new HttpError(403, "Not authorized");
+
+    const updated = await prisma.gameSession.update({
+      where: { id: sessionId },
+      data: { status: "DECLINED" },
+    });
+
+    response.json(updated);
+  } catch (error) {
+    next(error);
+  }
+});
+
 api.get("/games/:sessionId", requireAuth, async (request: AuthenticatedRequest, response, next) => {
   try {
     const sessionId = routeParam(request.params.sessionId);
@@ -1191,6 +1706,16 @@ api.post("/calls/initiate", requireAuth, async (request: AuthenticatedRequest, r
 
 api.get("/calls/active", requireAuth, async (request: AuthenticatedRequest, response, next) => {
   try {
+    // Auto-expire calls ringing for more than 45 seconds
+    const expiredCutoff = new Date(Date.now() - 45_000);
+    await prisma.callSession.updateMany({
+      where: {
+        status: "CALLING",
+        createdAt: { lt: expiredCutoff },
+      },
+      data: { status: "MISSED", endedAt: new Date() },
+    });
+
     const matchIdQuery = request.query.matchId ? String(request.query.matchId) : undefined;
     const call = await prisma.callSession.findFirst({
       where: {
@@ -1206,6 +1731,167 @@ api.get("/calls/active", requireAuth, async (request: AuthenticatedRequest, resp
     });
 
     response.json(call);
+  } catch (error) {
+    next(error);
+  }
+});
+
+api.get("/calls/:callId/candidates", requireAuth, async (request: AuthenticatedRequest, response, next) => {
+  try {
+    const callId = routeParam(request.params.callId);
+    const since = Number(request.query.since || 0);
+    const call = await prisma.callSession.findUnique({
+      where: { id: callId },
+      include: {
+        caller: { include: { profile: true } },
+        callee: { include: { profile: true } },
+      },
+    });
+    if (!call || (call.callerId !== request.userId && call.calleeId !== request.userId)) {
+      throw new HttpError(404, "Call not found");
+    }
+
+    const allCandidates = (call.candidates as any[]) || [];
+    const newCandidates = allCandidates.filter(
+      (c: any) => c.from !== request.userId && (since === 0 || c.time > since)
+    );
+
+    response.json({
+      id: call.id,
+      status: call.status,
+      answer: call.answer,
+      offer: call.offer,
+      candidates: newCandidates,
+      caller: call.caller,
+      callee: call.callee,
+      startedAt: call.startedAt,
+      endedAt: call.endedAt,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+api.post("/calls/:callId/decline", requireAuth, async (request: AuthenticatedRequest, response, next) => {
+  try {
+    const callId = routeParam(request.params.callId);
+    const call = await prisma.callSession.findUnique({ where: { id: callId } });
+    if (!call || (call.callerId !== request.userId && call.calleeId !== request.userId)) {
+      throw new HttpError(404, "Call not found");
+    }
+
+    const updated = await prisma.callSession.update({
+      where: { id: callId },
+      data: {
+        status: "DECLINED",
+        endedAt: new Date(),
+      },
+    });
+
+    response.json(updated);
+  } catch (error) {
+    next(error);
+  }
+});
+
+api.post("/calls/:callId/skip-and-match", requireAuth, async (request: AuthenticatedRequest, response, next) => {
+  try {
+    const callId = routeParam(request.params.callId);
+    const currentCall = await prisma.callSession.findUnique({ where: { id: callId } });
+    if (!currentCall || (currentCall.callerId !== request.userId && currentCall.calleeId !== request.userId)) {
+      throw new HttpError(404, "Call not found");
+    }
+
+    // 1. End current call as SKIPPED
+    await prisma.callSession.update({
+      where: { id: callId },
+      data: { status: "SKIPPED", endedAt: new Date() },
+    });
+
+    const skippedPartnerId = currentCall.callerId === request.userId ? currentCall.calleeId : currentCall.callerId;
+
+    // 2. Find all mutual matches for this user
+    const myMatches = await prisma.match.findMany({
+      where: { OR: [{ userAId: request.userId }, { userBId: request.userId }] },
+      include: {
+        userA: { include: { profile: true } },
+        userB: { include: { profile: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    // 3. Find blocks to exclude
+    const blocks = await prisma.block.findMany({
+      where: { OR: [{ blockerId: request.userId }, { blockedId: request.userId }] },
+    });
+    const blockedIds = new Set(blocks.flatMap((b: any) => [b.blockerId, b.blockedId]));
+    blockedIds.add(request.userId!);
+    blockedIds.add(skippedPartnerId);
+
+    // 4. Find all currently busy users in active calls
+    const activeCalls = await prisma.callSession.findMany({
+      where: { status: { in: ["CALLING", "ACCEPTED"] } },
+      select: { callerId: true, calleeId: true },
+    });
+    const busyUserIds = new Set(activeCalls.flatMap((c: any) => [c.callerId, c.calleeId]));
+
+    // 5. Look for an available candidate match
+    let availableMatch: any = null;
+    let nextPartner: any = null;
+
+    for (const m of myMatches) {
+      const partner = m.userAId === request.userId ? m.userB : m.userA;
+      if (!blockedIds.has(partner.id) && !busyUserIds.has(partner.id)) {
+        availableMatch = m;
+        nextPartner = partner;
+        break;
+      }
+    }
+
+    if (!availableMatch || !nextPartner) {
+      response.json({
+        found: false,
+        message: "No other matches currently available for video calls. You can try again shortly!",
+      });
+      return;
+    }
+
+    // 6. Initiate call with next match
+    const newCall = await prisma.callSession.create({
+      data: {
+        callerId: request.userId!,
+        calleeId: nextPartner.id,
+        matchId: availableMatch.id,
+        callType: "VIDEO",
+        status: "CALLING",
+      },
+      include: {
+        caller: { include: { profile: true } },
+        callee: { include: { profile: true } },
+      },
+    });
+
+    const myProfile = await prisma.profile.findUnique({ where: { userId: request.userId } });
+    await prisma.notification.create({
+      data: {
+        userId: nextPartner.id,
+        type: "CALL",
+        title: `Incoming Video Call from ${myProfile?.displayName ?? "Match"}! 📹`,
+        message: "Tap to answer your incoming video call.",
+        link: `/chat?matchId=${availableMatch.id}&callId=${newCall.id}`,
+      },
+    });
+
+    response.json({
+      found: true,
+      call: newCall,
+      match: {
+        id: availableMatch.id,
+        name: nextPartner.profile?.displayName ?? "Match",
+        image: nextPartner.profile?.imageUrl ?? nextPartner.profile?.photos?.[0] ?? "",
+        otherUserId: nextPartner.id,
+      },
+    });
   } catch (error) {
     next(error);
   }

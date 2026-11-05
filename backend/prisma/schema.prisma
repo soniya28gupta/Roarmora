@@ -19,52 +19,60 @@ enum ReportStatus {
 }
 
 model User {
-  id              String            @id @default(uuid()) @db.Uuid
-  email           String            @unique @db.VarChar(320)
-  passwordHash    String            @map("password_hash")
-  birthDate       DateTime          @map("birth_date") @db.Date
-  createdAt       DateTime          @default(now()) @map("created_at")
-  profile         Profile?
-  preferences     Preference?
-  sessions        Session[]
-  swipesSent      Swipe[]           @relation("SwipeActor")
-  swipesGot       Swipe[]           @relation("SwipeTarget")
-  matchesA        Match[]           @relation("MatchUserA")
-  matchesB        Match[]           @relation("MatchUserB")
-  dropsHosted     Drop[]            @relation("DropHost")
-  collections     DropCollection[]
-  messages        Message[]
-  blocksSent      Block[]           @relation("BlockActor")
-  blocksGot       Block[]           @relation("BlockTarget")
-  reportsSent     Report[]          @relation("ReportReporter")
-  reportsReceived Report[]          @relation("ReportTarget")
-  inventories     UserInventory[]
-  achievements    UserAchievement[]
-  notifications   Notification[]
-  gameSessions    GameSession[]     @relation("GameHost")
-  gameJoined      GameParticipant[]
-  callsInitiated  CallSession[]     @relation("CallCaller")
-  callsReceived   CallSession[]     @relation("CallCallee")
-  quizAnswers     QuizAnswer[]
+  id                  String            @id @default(uuid()) @db.Uuid
+  email               String            @unique @db.VarChar(320)
+  passwordHash        String            @map("password_hash")
+  googleId            String?           @unique @map("google_id") @db.VarChar(255)
+  isEmailVerified     Boolean           @default(false) @map("is_email_verified")
+  isIdentityVerified  Boolean           @default(false) @map("is_identity_verified")
+  onboardingCompleted Boolean           @default(false) @map("onboarding_completed")
+  birthDate           DateTime          @map("birth_date") @db.Date
+  createdAt           DateTime          @default(now()) @map("created_at")
+  profile             Profile?
+  preferences         Preference?
+  sessions            Session[]
+  otpCodes            OtpCode[]
+  swipesSent          Swipe[]           @relation("SwipeActor")
+  swipesGot           Swipe[]           @relation("SwipeTarget")
+  matchesA            Match[]           @relation("MatchUserA")
+  matchesB            Match[]           @relation("MatchUserB")
+  dropsHosted         Drop[]            @relation("DropHost")
+  collections         DropCollection[]
+  messages            Message[]
+  blocksSent          Block[]           @relation("BlockActor")
+  blocksGot           Block[]           @relation("BlockTarget")
+  reportsSent         Report[]          @relation("ReportReporter")
+  reportsReceived     Report[]          @relation("ReportTarget")
+  inventories         UserInventory[]
+  achievements        UserAchievement[]
+  notifications       Notification[]
+  gameSessions        GameSession[]     @relation("GameHost")
+  gameJoined          GameParticipant[]
+  callsInitiated      CallSession[]     @relation("CallCaller")
+  callsReceived       CallSession[]     @relation("CallCallee")
+  quizAnswers         QuizAnswer[]
 
   @@map("users")
 }
 
 model Profile {
-  id                 String   @id @default(uuid()) @db.Uuid
-  userId             String   @unique @map("user_id") @db.Uuid
-  displayName        String   @map("display_name") @db.VarChar(80)
-  bio                String   @db.VarChar(500)
-  city               String   @db.VarChar(120)
+  id                 String    @id @default(uuid()) @db.Uuid
+  userId             String    @unique @map("user_id") @db.Uuid
+  displayName        String    @map("display_name") @db.VarChar(80)
+  bio                String    @db.VarChar(500)
+  city               String    @db.VarChar(120)
   interests          String[]
-  imageUrl           String?  @map("image_url") @db.VarChar(2048)
-  photos             String[] @default([])
-  gender             String?  @db.VarChar(40)
-  lookingFor         String?  @map("looking_for") @db.VarChar(40)
-  compatibilityScore Int?     @map("compatibility_score")
-  discoverable       Boolean  @default(true)
-  updatedAt          DateTime @updatedAt @map("updated_at")
-  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  imageUrl           String?   @map("image_url") @db.VarChar(2048)
+  photos             String[]  @default([])
+  gender             String?   @db.VarChar(40)
+  lookingFor         String?   @map("looking_for") @db.VarChar(40)
+  connectionGoal     String?   @map("connection_goal") @db.VarChar(80)
+  livenessSessionId  String?   @map("liveness_session_id") @db.VarChar(120)
+  livenessVerifiedAt DateTime? @map("liveness_verified_at")
+  compatibilityScore Int?      @map("compatibility_score")
+  discoverable       Boolean   @default(true)
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("profiles")
 }
@@ -343,4 +351,19 @@ model QuizAnswer {
 
   @@unique([userId, questionId])
   @@map("quiz_answers")
+}
+
+model OtpCode {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String?   @map("user_id") @db.Uuid
+  email     String    @db.VarChar(320)
+  codeHash  String    @map("code_hash") @db.VarChar(64)
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  attempts  Int       @default(0)
+  createdAt DateTime  @default(now()) @map("created_at")
+  user      User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([email, createdAt])
+  @@map("otp_codes")
 }

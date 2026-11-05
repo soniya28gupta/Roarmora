@@ -52,20 +52,30 @@ export const errorHandler: ErrorRequestHandler = (error, _request, response, _ne
 export function fixedWindowLimit(maximum: number, windowMs: number): RequestHandler {
   const buckets = new Map<string, { count: number; resetAt: number }>();
   return (request, response, next) => {
-    const key = request.ip ?? "unknown";
+    const rawForwarded = request.headers["x-forwarded-for"];
+    const forwardedIp = Array.isArray(rawForwarded)
+      ? rawForwarded[0]?.split(",")[0]?.trim()
+      : typeof rawForwarded === "string"
+        ? rawForwarded.split(",")[0]?.trim()
+        : undefined;
+    const key = forwardedIp || request.ip || "unknown";
     const time = Date.now();
     let bucket = buckets.get(key);
     if (!bucket || bucket.resetAt <= time) {
       bucket = { count: 0, resetAt: time + windowMs };
       buckets.set(key, bucket);
     }
+    if (bucket.count >= maximum) {
+      response.setHeader("RateLimit-Limit", maximum);
+      response.setHeader("RateLimit-Remaining", 0);
+      response.setHeader("RateLimit-Reset", Math.ceil(bucket.resetAt / 1000));
+      response.status(429).json({ error: "Too many requests. Please wait a few moments and try again." });
+      return;
+    }
     bucket.count += 1;
     response.setHeader("RateLimit-Limit", maximum);
     response.setHeader("RateLimit-Remaining", Math.max(0, maximum - bucket.count));
-    if (bucket.count > maximum) {
-      response.status(429).json({ error: "Too many requests" });
-      return;
-    }
+    response.setHeader("RateLimit-Reset", Math.ceil(bucket.resetAt / 1000));
     if (buckets.size > 10_000) {
       for (const [bucketKey, value] of buckets) if (value.resetAt <= time) buckets.delete(bucketKey);
     }

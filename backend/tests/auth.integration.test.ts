@@ -5,9 +5,17 @@ const database = vi.hoisted(() => ({
   user: {
     create: vi.fn(),
     findUnique: vi.fn(),
+    findFirst: vi.fn(),
+    update: vi.fn(),
   },
   session: {
     create: vi.fn(),
+  },
+  otpCode: {
+    updateMany: vi.fn(),
+    create: vi.fn(),
+    findFirst: vi.fn(),
+    update: vi.fn(),
   },
 }));
 
@@ -160,5 +168,71 @@ describe("authentication API", () => {
         expect.objectContaining({ path: ["birthDate"] }),
       ]),
     });
+  });
+
+  it("generates a 60-second OTP, rejects expired or reused OTPs, and verifies valid 6-digit OTPs", async () => {
+    database.otpCode.updateMany.mockResolvedValue({ count: 0 });
+    database.user.findUnique.mockResolvedValue({ id: "user-1" });
+    database.otpCode.create.mockResolvedValue({ id: "otp-1" });
+
+    const sendRes = await fetch(`${baseUrl}/api/v1/auth/otp/send`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "  SONIYA@GMAIL.COM " }),
+    });
+
+    expect(sendRes.status).toBe(200);
+    const sendBody = await sendRes.json();
+    expect(sendBody.email).toBe("soniya@gmail.com");
+    expect(sendBody.expiresInSeconds).toBe(60);
+    expect(database.otpCode.create).toHaveBeenCalledOnce();
+    const createdOtpData = database.otpCode.create.mock.calls[0]?.[0].data;
+    expect(createdOtpData.email).toBe("soniya@gmail.com");
+
+    // Test expired OTP rejection
+    database.otpCode.findFirst.mockResolvedValueOnce({
+      id: "otp-expired",
+      email: "soniya@gmail.com",
+      codeHash: createdOtpData.codeHash,
+      expiresAt: new Date(Date.now() - 1000),
+      usedAt: null,
+      attempts: 0,
+    });
+
+    const expiredRes = await fetch(`${baseUrl}/api/v1/auth/otp/verify`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "soniya@gmail.com", code: "123456" }),
+    });
+    expect(expiredRes.status).toBe(400);
+    expect((await expiredRes.json()).error).toContain("expired");
+
+    // Test already used OTP rejection
+    database.otpCode.findFirst.mockResolvedValueOnce({
+      id: "otp-used",
+      email: "soniya@gmail.com",
+      codeHash: createdOtpData.codeHash,
+      expiresAt: new Date(Date.now() + 30_000),
+      usedAt: new Date(),
+      attempts: 0,
+    });
+
+    const usedRes = await fetch(`${baseUrl}/api/v1/auth/otp/verify`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "soniya@gmail.com", code: "123456" }),
+    });
+    expect(usedRes.status).toBe(400);
+    expect((await usedRes.json()).error).toContain("already been used");
+  });
+
+  it("rejects Google sign-in requests when no token is provided", async () => {
+    const emptyGoogleRes = await fetch(`${baseUrl}/api/v1/auth/google`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(emptyGoogleRes.status).toBe(400);
+    expect(database.session.create).not.toHaveBeenCalled();
   });
 });

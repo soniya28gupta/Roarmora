@@ -21,11 +21,12 @@ export const registerSchema = z.object({
     return !Number.isNaN(date.valueOf()) && isAdult(date);
   }, "You must be at least 18 years old to join Pookie Match"),
   displayName: z.string().trim().min(1).max(80),
-  bio: z.string().trim().max(500).default(""),
+  bio: z.string().trim().max(150, "Bio cannot exceed 150 characters").default(""),
   city: z.string().trim().min(1).max(120),
   interests: z.array(z.string().trim().min(1).max(40)).max(30).default([]),
   gender: z.string().trim().max(40).optional(),
   lookingFor: z.string().trim().max(40).optional(),
+  connectionGoal: z.string().trim().max(80).optional(),
 });
 
 export const loginSchema = z.object({
@@ -33,17 +34,59 @@ export const loginSchema = z.object({
   password: z.string().min(1).max(128),
 });
 
+export const googleAuthSchema = z.object({
+  idToken: z.string().trim().min(1).optional(),
+  accessToken: z.string().trim().min(1).optional(),
+  birthDate: z.iso.date().refine((value) => {
+    const date = new Date(`${value}T00:00:00.000Z`);
+    return !Number.isNaN(date.valueOf()) && isAdult(date);
+  }, "You must be at least 18 years old to join Pookie Match").optional(),
+  displayName: z.string().trim().min(1).max(80).optional(),
+}).refine((val) => Boolean(val.idToken || val.accessToken), {
+  message: "Either idToken or accessToken is required for Google Sign-In",
+});
+
+export const otpSendSchema = z.object({
+  email: z.string().trim().email().max(320).transform((value) => value.toLowerCase()),
+});
+
+export const otpVerifySchema = z.object({
+  email: z.string().trim().email().max(320).transform((value) => value.toLowerCase()),
+  code: z.string().trim().regex(/^\d{6}$/, "OTP must be an exact 6-digit numeric code"),
+});
+
+const photoUriValidator = z.string().trim().min(1).max(2_500_000).refine(
+  (val) => val.startsWith("https://") || val.startsWith("http://") || /^data:image\/(jpeg|jpg|png|webp);base64,/i.test(val),
+  "Photo must be a valid HTTPS URL or base64 encoded JPEG/PNG/WebP image",
+);
+
 export const profileSchema = z.object({
   displayName: z.string().trim().min(1).max(80).optional(),
-  bio: z.string().trim().max(500).optional(),
+  bio: z.string().trim().max(150, "Bio cannot exceed 150 characters").optional(),
   city: z.string().trim().min(1).max(120).optional(),
   interests: z.array(z.string().trim().min(1).max(40)).max(30).optional(),
-  imageUrl: z.string().url().max(2048).nullable().optional(),
-  photos: z.array(z.string().url().max(2048)).max(10).optional(),
+  imageUrl: photoUriValidator.nullable().optional(),
+  photos: z.array(photoUriValidator).max(10).optional(),
   gender: z.string().trim().max(40).optional(),
   lookingFor: z.string().trim().max(40).optional(),
+  connectionGoal: z.string().trim().max(80).optional(),
   discoverable: z.boolean().optional(),
+  birthDate: z.iso.date().refine((value) => {
+    const date = new Date(`${value}T00:00:00.000Z`);
+    return !Number.isNaN(date.valueOf()) && isAdult(date);
+  }, "You must be at least 18 years old to join Pookie Match").optional(),
 }).strict();
+
+export const photoUploadSchema = z.object({
+  photos: z.array(photoUriValidator).min(2, "Minimum 2 gallery photos are required").max(10),
+});
+
+export const livenessVerifySchema = z.object({
+  sessionId: z.string().trim().min(1).max(120),
+  faceScanPayload: z.string().min(1).optional(),
+  auditTrailImage: z.string().min(1).optional(),
+  lowQualityAuditTrailImage: z.string().min(1).optional(),
+});
 
 export const preferenceSchema = z.object({
   minAge: z.number().int().min(18).max(99).optional(),
@@ -131,6 +174,11 @@ export const callCandidateSchema = z.object({
 export const gameStartSchema = z.object({
   gameType: z.enum(["COMPATIBILITY_QUIZ", "VIBE_CHECK", "TRUTH_OR_DARE", "TREASURE_RACE"]),
   matchId: z.string().uuid().optional(),
+});
+
+export const gameInviteSchema = z.object({
+  gameType: z.enum(["COMPATIBILITY_QUIZ", "VIBE_CHECK", "TRUTH_OR_DARE", "TREASURE_RACE"]),
+  matchId: z.string().uuid(),
 });
 
 export const gameActionSchema = z.object({
