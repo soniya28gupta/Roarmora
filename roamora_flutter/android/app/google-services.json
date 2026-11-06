@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "901087142900",
+    "project_id": "pookie-match-94c6e",
+    "storage_bucket": "pookie-match-94c6e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:901087142900:android:ac3edc7820a0d38136cfa1",
+        "android_client_info": {
+          "package_name": "com.roamora.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBNwu2EvqCBtHyjh2sG4guy8zB8-ViJ6aw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
